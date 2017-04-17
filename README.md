@@ -1,3 +1,3 @@
 # cell-segmentation-analysis
 
-To download th images go to this Link [Dropbox Link](https://www.dropbox.com/sh/pg0fpy4vlnocfk7/AACSGvP86XAbOOlyVCkVgiJEa?dl=0)
+To download the images go to this Link [Dropbox Link](https://www.dropbox.com/sh/pg0fpy4vlnocfk7/AACSGvP86XAbOOlyVCkVgiJEa?dl=0)
