@@ -188,35 +188,34 @@ def enhance_blur_segment(img,enhance = True, blur = True, kernel = 61, n_intensi
     return (cl1, gaussian_blur_cl1, segmented, centers)
 
 
-
-
-
-
-
 def draw_blob_log(intensity_image,color_image,with_labels = False, max_sigma=8,  min_sigma=4,num_sigma=30,threshold=.02,overlap=0.7,color_blobs = (0,0,255),width =1 ):
-    """
-    Draws blobs in color image using the scikit image blob_log function
-    -------
-    intensity_image: (N, M) ndarray
-    Image were you want to detect the blobs
-    
-    color_image: (N, M, 3) ndarray
-    RGB image were
-    
-    min_sigma : float, optional
-
-    The minimum standard deviation for Gaussian Kernel. Keep this low to detect smaller blobs.
-    max_sigma : float, optional
-
-    The maximum standard deviation for Gaussian Kernel. Keep this high to detect larger blobs.
-    num_sigma : int, optional
-
-    The number of intermediate values of standard deviations to consider between min_sigma and max_sigma.
-    
-    Returns
-    -------
-    color_image: (N, M,3) ndarray
-    RGB image                                                    
+    """ Identifies blobs in intensity image using the scikit image blob_log function, and then draws blobs in color image
+        -------
+        intensity_image: (N, M) ndarray
+            Image where you want to detect the blobs
+        
+        color_image: (N, M, 3) ndarray
+            RGB image were you want to draw the blobs
+        
+        min_sigma: float, optional
+            The minimum standard deviation for Gaussian Kernel. Keep this low to detect smaller blobs.
+        
+        max_sigma: float, optional
+            The maximum standard deviation for Gaussian Kernel. Keep this high to detect larger blobs.
+        
+        num_sigma: int, optional
+            The number of intermediate values of standard deviations to consider between min_sigma and max_sigma.
+        
+        color_blobs: tuple, optional
+            Color of the blobs. Example: (0,255,0)
+        
+        width: int, optional
+            Width of line of blobs
+        
+        Returns
+        -------
+        color_image: (N, M,3) ndarray
+            RGB image with blobs drawn                                                   
       
     """
     blobs = blob_log(intensity_image, max_sigma,  min_sigma,num_sigma,threshold,overlap)
@@ -232,16 +231,25 @@ def draw_blob_log(intensity_image,color_image,with_labels = False, max_sigma=8, 
     return color_image
 
 def blob_log_measure(intensity_image, max_sigma=8,  min_sigma=4,num_sigma=30,threshold=.02,overlap=0.7):
-    """
-    min_sigma : float, optional
-
-    The minimum standard deviation for Gaussian Kernel. Keep this low to detect smaller blobs.
-    max_sigma : float, optional
-
-    The maximum standard deviation for Gaussian Kernel. Keep this high to detect larger blobs.
-    num_sigma : int, optional
-
-    The number of intermediate values of standard deviations to consider between min_sigma and max_sigma.
+    """ Identifies blobs in intensity image using the scikit image blob_log function, and then outputs a dataframe table with the positions of the blobs
+        -------
+        intensity_image: (N, M) ndarray
+            Image where you want to detect the blobs
+            
+        min_sigma: float, optional
+            The minimum standard deviation for Gaussian Kernel. Keep this low to detect smaller blobs.
+        
+        max_sigma: float, optional
+            The maximum standard deviation for Gaussian Kernel. Keep this high to detect larger blobs.
+        
+        num_sigma: int, optional
+            The number of intermediate values of standard deviations to consider between min_sigma and max_sigma.
+        
+        Returns
+        -------
+        positions: pandas Dataframe
+            Table with the center coordinates and labels for the blobs. The columns are the following: ['x_col','y_row','r','track_window']                                             
+      
     """
     positions = []
     blobs = blob_log(intensity_image, max_sigma,  min_sigma,num_sigma,threshold,overlap)
@@ -270,19 +278,33 @@ def blob_log_measure(intensity_image, max_sigma=8,  min_sigma=4,num_sigma=30,thr
     return positions
 
 def draw_blob_dog(intensity_image,color_image,with_labels = False, max_sigma=8,  min_sigma=4,num_sigma=30,threshold=.02,overlap=0.7,color_blobs = (0,0,255),width =1 ):
-    """
-    Draws blobs based on the blob log deteciton algorithm from scikit image
-    
-    
-    min_sigma : float, optional
-
-    The minimum standard deviation for Gaussian Kernel. Keep this low to detect smaller blobs.
-    max_sigma : float, optional
-
-    The maximum standard deviation for Gaussian Kernel. Keep this high to detect larger blobs.
-    num_sigma : int, optional
-
-    The number of intermediate values of standard deviations to consider between min_sigma and max_sigma.
+    """ Identifies blobs in intensity image using the scikit image blob_dog function, and then draws blobs in color image
+        -------
+        intensity_image: (N, M) ndarray
+            Image where you want to detect the blobs
+        
+        color_image: (N, M, 3) ndarray
+            RGB image were you want to draw the blobs
+        
+        min_sigma: float, optional
+            The minimum standard deviation for Gaussian Kernel. Keep this low to detect smaller blobs.
+        
+        max_sigma: float, optional
+            The maximum standard deviation for Gaussian Kernel. Keep this high to detect larger blobs.
+        
+        num_sigma: int, optional
+            The number of intermediate values of standard deviations to consider between min_sigma and max_sigma.
+        
+        color_blobs: tuple
+            Color of the blobs. Example: (0,255,0)
+        
+        width: int
+            Width of line of blobs
+        
+        Returns
+        -------
+        color_image: (N, M,3) ndarray
+            RGB image with blobs drawn
     """
     blobs = blob_dog(intensity_image, max_sigma,  min_sigma,num_sigma,threshold,overlap)
     blobs[:, 2] = blobs[:, 2] * sqrt(2)
@@ -298,6 +320,17 @@ def draw_blob_dog(intensity_image,color_image,with_labels = False, max_sigma=8, 
 
 def draw_contours(labeled,color_image,with_labels= False, color = (255,0,0),width = 1 ):
     """Draws contours based on labeled image
+       -------
+       
+        color_blobs: tuple
+            Color of the blobs. Example: (0,255,0)
+        
+        width: int, optional
+            Width of line of blobs
+       Returns
+       -------
+       color_image: (N, M,3) ndarray
+           RGB image with blobs drawn
     """
     
     im2, contours, hierarchy = cv2.findContours(np.int32(labeled),cv2.RETR_FLOODFILL,cv2.CHAIN_APPROX_SIMPLE)
@@ -370,11 +403,13 @@ class cell_tracking:
      """Class fro cell tracking """
      def __init__(self,zstack, zstack_to_segment, zstack_color):
         """ 
-        zstack: A Stack of 8bit  (S, N, M) ndarray where S is the number of slices
+        zstack: (Z, N, M) ndarray 
+            where Z is the number of slices or frames
         
-        zstack_to_segment: A Stack of 8bit  (S, N, M) ndarray where S is the number of slices
+        zstack_to_segment: (Z, N, M) ndarray where
+            Z is the number of slices or frames
         
-        zstack_color: An RGB Stack (S, N, M,3) ndarray where S is the numbee of slices
+        zstack_color: An RGB Stack (Z, N, M, 3) ndarray where S is the number of slices or frames
         """
         self.zstack = zstack.copy()
         self.zstack_to_segment = zstack_to_segment.copy()
@@ -626,6 +661,8 @@ class cell_tracking:
                         self.positions_table.ix[index,'label'] = max_label
     
      def filter_table(self,min_slices):
+        """Function to remove labeled blobs or regions that are present in less than a minimum number of slices or frames
+        """
         table_positions  = self.positions_table.copy()
 
         for unique_label in np.unique(table_positions.label):
@@ -779,13 +816,17 @@ class cell_tracking:
          
         """Function to track one cell. You will give the tracking window and zlevel and it will return a marked zstack and a dictionary of the mean intensity measurments""" 
         
-        measurements = {}
+        positions = []
         # add kernel and enhance option
         x0 = track_window[0]
         y0 = track_window[1]
         w = track_window[2]
         h = track_window[3]
         center = np.array([x0+(w/2),y0+(h/2)])
+        x_col = center[0]
+        y_row = center[1]
+        
+        
         zstack_color = self.zstack_color_orig.copy()
         zstack = self.zstack.copy()
 
@@ -833,11 +874,20 @@ class cell_tracking:
         regions =  regionprops(labeled,first_frame)
         index = 0
         mean_intensity = regions[index].mean_intensity        
-        measurements[z] =  mean_intensity
+       
         
         im2, contours, hierarchy = cv2.findContours(combined_thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
         cv2.drawContours(first_frame_color, contours, -1, (0,0,255), 2)
         
+        
+        #Add all measurements
+        position =[]
+        position.append(z)
+        position.append(x_col)
+        position.append(y_row)
+        position.append(track_window)
+        position.append(mean_intensity)
+		
         
         #Start loop
         
@@ -914,7 +964,6 @@ class cell_tracking:
             print(len(regions))
             index =0            
             mean_intensity = regions[index].mean_intensity        
-            measurements[frame_n] =  mean_intensity
             
             y0, x0, y1, x1 = regions[index].bbox #(min_row, min_col, max_row, max_col)
             track_window = (x0, y0, x1-x0, y1-y0)
@@ -925,12 +974,22 @@ class cell_tracking:
             cv2.drawContours(frame_img_color, contours, -1, (0,0,255), 2)
             roi_hist = cv2.calcHist([gaussian_blur_cl1],[0],combined_thresh,[256],[0,256])
             
-        return zstack_color , measurements                 
+            x_col = center[0]
+            y_row = center[1]
+            position =[]
+            position.append(frame_n)
+            position.append(x_col)
+            position.append(y_row)
+            position.append(track_window)
+            position.append(mean_intensity)
+            positions.append(position)
+        positions_table  = DataFrame(positions, columns = ['z','x_col','y_row','track_window','mean_intensity'])    
+        return zstack_color , positions_table                 
                         
      def track_window_graph(self,label,z,track_window,enhance_bool = False, blur_bool = True, kernel_size = 61, size = 2.5):
         plt.ioff()
 
-        """Function to track one cell. You will give the tracking window and zlevel and it will return a marked zstack with a graph of the mean intensity measurments""" 
+        """Function to track one cell. You will give the tracking window and zlevel and it will return a marked zstack with a and table with intensity measurments""" 
         mpl.rcParams.update(mpl.rcParamsDefault)
         mpl.rcParams['axes.linewidth'] = 1
         mpl.rcParams['font.sans-serif'] = 'Arial'
@@ -940,8 +999,11 @@ class cell_tracking:
 
         tracked_label, measurements = self.track_window(z,track_window,enhance_bool ,blur_bool, kernel_size)
         
+        
         stack_graph = np.zeros((tracked_label.shape[0],tracked_label.shape[1]+pixels,tracked_label.shape[2]+pixels,tracked_label.shape[3]), dtype = np.uint8)
-        measurementsSeries = Series(measurements)
+        
+        #Change this
+        measurementsSeries = Series(measurements.mean_intensity.values, index = measurements.z.values)
         
         for z_index in range(0,tracked_label.shape[0]):
             zslice= tracked_label[z_index].copy() 
