@@ -86,7 +86,7 @@ for list_file in os.listdir(path_results):
             plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
             plt.title(name)
             ct.reset_drawing()
-            labeled = ct.track_blob_labeld(label_n,levels_after =4)
+            labeled = ct.track_blob_labeled(label_n,levels_after =4)
             cellseg.create_video(path_graph, name+'Label_'+str(label_n),labeled,fps=4)
             #
 #%% Modeling

@@ -110,7 +110,7 @@ label = 11
 ct.reset_drawing()
 
 mpl.rcParams.update(mpl.rcParamsDefault)
-stack_graph = ct.track_blob_labeld(label,size =3.0)
+stack_graph = ct.track_blob_labeled(label,size =3.0)
 cellseg.create_video(path_results, 'Tracked_blob_' + str(label),stack_graph)
 
 #%%

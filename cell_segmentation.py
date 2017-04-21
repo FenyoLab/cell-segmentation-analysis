@@ -171,12 +171,12 @@ def enhance_blur_segment(img,enhance = True, blur = True, kernel = 61, n_intensi
         clahe = cv2.createCLAHE() # tileGridSize=(8,8)
         cl1 = clahe.apply(img)
     else:
-        cl1 = img
+        cl1 = img.copy()
     
     if blur:
         gaussian_blur_cl1 = cv2.GaussianBlur(cl1,(kernel,kernel),0, 0)        
     else:
-        blur = cl1
+        gaussian_blur_cl1 = cl1.copy()
     
     if n_intensities  == 2:
         centers, segmented = cv2.threshold(gaussian_blur_cl1,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
@@ -230,12 +230,13 @@ def draw_blob_log(intensity_image,color_image,with_labels = False, max_sigma=8, 
         
     return color_image
 
-def blob_log_measure(intensity_image, max_sigma=8,  min_sigma=4,num_sigma=30,threshold=.02,overlap=0.7):
+def blob_log_measure(track_image,intensity_image, max_sigma=8,  min_sigma=4,num_sigma=30,threshold=.02,overlap=0.7):
     """ Identifies blobs in intensity image using the scikit image blob_log function, and then outputs a dataframe table with the positions of the blobs
         -------
-        intensity_image: (N, M) ndarray
+        track_image: (N, M) ndarray
             Image where you want to detect the blobs
-            
+        intensity_image: (N, M) ndarray
+            Image where you want to measure the intesnity of the blobs    
         min_sigma: float, optional
             The minimum standard deviation for Gaussian Kernel. Keep this low to detect smaller blobs.
         
@@ -252,7 +253,7 @@ def blob_log_measure(intensity_image, max_sigma=8,  min_sigma=4,num_sigma=30,thr
       
     """
     positions = []
-    blobs = blob_log(intensity_image, max_sigma,  min_sigma,num_sigma,threshold,overlap)
+    blobs = blob_log(track_image, max_sigma,  min_sigma,num_sigma,threshold,overlap)
     blobs[:, 2] = blobs[:, 2] * sqrt(2)
     for blob in blobs:
         y_row, x_col, r = blob
@@ -269,10 +270,14 @@ def blob_log_measure(intensity_image, max_sigma=8,  min_sigma=4,num_sigma=30,thr
 
         track_window = (int(x0), int(y0), int(r*2), int(r*2))
         position.append(track_window)
-        
+        mask = np.zeros_like(intensity_image)
+                  
+        cv2.circle(mask, (int(x_col),int(y_row)), int(r),255 , -1)
+        mean_intensity = intensity_image[mask > 0].mean()
+        position.append(mean_intensity)
         positions.append(position)
        
-    positions  = DataFrame(positions, columns = ['x_col','y_row','r','track_window'])
+    positions  = DataFrame(positions, columns = ['x_col','y_row','r','track_window','mean_intensity'])
         
     
     return positions
@@ -343,27 +348,29 @@ def draw_contours(labeled,color_image,with_labels= False, color = (255,0,0),widt
 
     return color_image
 
-def regions_measure(labeled):
+def regions_measure(labeled,intensity_image):
     
     """Creates a DataFrame of the positions and measurements of the regions based on a labeled image"""
     
     positions =[]
-    for region in regionprops(labeled):
+    for region in regionprops(labeled,intensity_image):
         position = []
-        
+        y0, x0, y1, x1 = region.bbox #(min_row, min_col, max_row, max_col)
+        r = (x1-x0)/2.0
         y_row = region.centroid[0]
         x_col = region.centroid[1]
-        r = region.perimeter/2
         position.append(x_col)
         position.append(y_row)
         position.append(r)
-        y0, x0, y1, x1 = region.bbox #(min_row, min_col, max_row, max_col)
+        
         track_window = (x0, y0, x1-x0, y1-y0)
     
         position.append(track_window)
+        position.append(region.mean_intensity)
+
         positions.append(position)
     
-    positions  = DataFrame(positions, columns = ['x_col','y_row','r','track_window'])
+    positions  = DataFrame(positions, columns = ['x_col','y_row','r','track_window','mean_intensity'])
     
     return positions
 
@@ -372,7 +379,7 @@ def create_video (path, name, zstack_color,fps = 2):
     """Creates an mp4v video from zstack and saves in the path"""
     
     fourcc2 = cv2.VideoWriter_fourcc('m', 'p', '4', 'v') # note the lower case
-    vout2 = cv2.VideoWriter()
+    vout2 = cv2.VideoWriter(path+name+'.mov',fourcc2,fps,zstack_color.shape[1:3],True)
   
     
     zstack_color_bgr = np.zeros_like(zstack_color) 
@@ -382,7 +389,8 @@ def create_video (path, name, zstack_color,fps = 2):
     zstack_color_bgr[:,:,:,2] = zstack_color[:,:,:,0].copy()
     
     success = vout2.open(path+name+'.mov',fourcc2,fps,zstack_color_bgr.shape[1:3],True)
-  
+    #vout2 = cv2.VideoWriter(path+name+'.mov',fourcc2,fps,zstack_color_bgr.shape[1:3],True)
+    #print success
     for frame in list(range(zstack_color_bgr.shape[0])):
         new_frame = zstack_color_bgr[frame]
         vout2.write(new_frame)
@@ -397,6 +405,28 @@ def jupyter_video(fname):
                     <source src="data:video/mp4;base64,{0}" type="video/mp4" />
                  </video>'''.format(encoded.decode('ascii'))) 
 
+def video_to_tif(path,index):
+    """Reads video and retuns tif
+    """
+    cap = cv2.VideoCapture(path)
+    rows = int(cap.get(4))
+    columns = int(cap.get(3))
+    frames = int(cap.get(7))
+    
+    tif_image = np.zeros((frames,rows, columns), dtype = np.uint8)
+    
+    #%%
+    i = 0
+    while(cap.isOpened()):
+        ret, frame = cap.read()
+        if ret:
+            tif_image[i] = frame[:,:,index].copy()
+            i += 1
+        if i == frames:
+            break
+    
+    cap.release()
+    return tif_image
 
 class cell_tracking:
      #initiate
@@ -404,7 +434,7 @@ class cell_tracking:
      def __init__(self,zstack, zstack_to_segment, zstack_color):
         """ 
         zstack: (Z, N, M) ndarray 
-            where Z is the number of slices or frames
+            Intensity zstack where Z is the number of slices or frames
         
         zstack_to_segment: (Z, N, M) ndarray where
             Z is the number of slices or frames
@@ -587,14 +617,15 @@ class cell_tracking:
                 
                 y_row = region.centroid[0]
                 x_col = region.centroid[1]
-                r = region.perimeter/2
+                y0, x0, y1, x1 = region.bbox #(min_row, min_col, max_row, max_col)
+
+                r = (x1-x0)/2
                 
                 position.append(x_col)
                 position.append(y_row)
                 position.append(n)
                 position.append(r)
                 position.append(0)
-                y0, x0, y1, x1 = region.bbox #(min_row, min_col, max_row, max_col)
                 track_window = (x0, y0, x1-x0, y1-y0)
 
                 position.append(track_window)
@@ -674,7 +705,7 @@ class cell_tracking:
         
         self.positions_table = table_positions
         
-     def draw_labels(self, color_blobs = (0,0,255),  width = 2):
+     def draw_labels(self, color = (0,0,255), with_blobs =True ,width = 2):
         """Draws labels and blobs/circles in the cells in the zstack_color """
         for z_level in  range(0,self.positions_table.z.max()+1):
             
@@ -686,9 +717,10 @@ class cell_tracking:
                 x_col = self.positions_table.ix[index,'x_col']
                 r = self.positions_table.ix[index,'r']
                 label = self.positions_table.ix[index,'label']
-                cv2.circle(zstack_slice, (int(x_col),int(y_row)), int(r),color_blobs , width)
-                cv2.putText(zstack_slice,str(label),(int(x_col),int(y_row)),font,1,255,width,cv2.LINE_AA)
                 
+                cv2.putText(zstack_slice,str(label),(int(x_col),int(y_row)),font,1,color,width,cv2.LINE_AA)
+                if with_blobs:
+                    cv2.circle(zstack_slice, (int(x_col),int(y_row)), int(r),color , width)
                 
      def draw_contours(self, color_contours = (0,0,255),  width = 2):
         """Draws the contours in the cells in the zstack_color """
@@ -698,7 +730,7 @@ class cell_tracking:
             color = self.zstack_color[z_level]
             draw_contours(labeled,color,with_labels=False, color = (255,0,0) ,width = 1 )
      
-     def track_with_blob(self,min_slices = 10, reset_drawing = False):
+     def track_with_blob(self,min_slices = 2, color_blobs = (0,0,255), reset_drawing = False):
          """Function for tracking with blob detection. You need to set the segmentation parameters and the blob parameters before running.
          It will created a table of the positions and measurments and will draw the labels in the zstack color image
          
@@ -715,10 +747,10 @@ class cell_tracking:
          self.filter_table(min_slices)
          if reset_drawing:
               self.reset_drawing()
-         self.draw_labels()
+         self.draw_labels(color= color_blobs)
         
     
-     def track_with_regions(self, min_slices = 10,  reset_drawing = False):
+     def track_with_regions(self,color_contours = (255,0,0),color_labels = (255,0,0),min_slices = 10,  reset_drawing = False):
          """Function for tracking with regions . You need to set the segmentation and watershed segmentation parameters before running.
          It will created a table of the positions and measurments and will draw the labels in the zstack color image
          
@@ -732,8 +764,8 @@ class cell_tracking:
              self.filter_table(min_slices)
              if reset_drawing:
                   self.reset_drawing()
-             self.draw_labels()
-             self.draw_contours()
+             self.draw_labels(color=color_labels, with_blobs= False)
+             self.draw_contours(color_contours=color_contours)
          else:
              print "Set segmentation parameters"
              
@@ -1037,7 +1069,7 @@ class cell_tracking:
         plt.ion()
         return stack_graph
     
-     def track_blob_labeld(self,label,levels_after =4,size = 2.5):
+     def track_blob_labeled(self,label,levels_after =4,size = 2.5):
         
         plt.ioff()
          
