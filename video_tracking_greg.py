@@ -7,6 +7,7 @@
 # This script is an example of how to use the cell tracking 
 
 """
+
 import cell_segmentation as cellseg
 from skimage import io
 import numpy as np
@@ -53,7 +54,7 @@ zlevel_color_dapi = dapi_color[z].copy()
 #%%
 # Enhance, Blur, and Segment 
 
-cl1, gaussian_blur_cl1, segmented_zlevel, centers = cellseg.enhance_blur_segment(zlevel_image_dapi,enhance = True, blur = True, kernel = 7, n_intensities = 2)
+cl1, gaussian_blur_cl1, segmented_zlevel, centers = cellseg.enhance_blur_segment(zlevel_image_dapi,enhance = False, blur = False, kernel = 7, n_intensities = 2)
 io.imshow(cl1)
 io.imshow(gaussian_blur_cl1)
 io.imshow(segmented_zlevel)
@@ -67,7 +68,6 @@ labeled = cellseg.watershedsegment(segmented_zlevel,smooth_distance = True,kerne
 
 #%% Draw Contours  
 
-zlevel_image_color_regions_d  = cellseg.draw_contours(labeled,segmented_zlevel, with_labels = False, color = 0,width = 2 )
 
 zlevel_image_color_regions_d  = cellseg.draw_contours(labeled,zlevel_color_dapi.copy(), with_labels = True, color = (255,0,0),width = 2 )
 zlevel_image_color_regions_e  = cellseg.draw_contours(labeled,zlevel_color_erk.copy(), with_labels = True, color = (255,0,0),width = 2 )
