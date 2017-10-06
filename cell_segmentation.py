@@ -8,8 +8,9 @@ Created on Fri Dec 18 10:09:41 2015
 
 import cv2
 import numpy as np
-from skimage import feature,segmentation
+from skimage import feature,segmentation,filters
 from scipy import ndimage 
+from scipy.spatial import distance
 import mahotas as mh
 from skimage.measure import regionprops
 from sklearn.neighbors import NearestNeighbors
@@ -24,6 +25,8 @@ import matplotlib.pyplot as plt
 import io
 import base64
 from IPython.display import HTML
+from skimage import img_as_ubyte,color,exposure
+from skimage import io as sio
 
 """Series of functions to segment cells or nuclei"""
 
@@ -92,7 +95,7 @@ def kmeans_img(cl1, K):
     center = center[::-1]
     return res2, center
 
-def watershedsegment(thresh,smooth_distance = True,kernel = 3):
+def watershedsegment(thresh,smooth_distance = True,kernel = 3,min_dist=10):
     
     """Uses the watershed segmentation  algorithm to separate cells or nuclei in K intensities
         ----------
@@ -118,7 +121,7 @@ def watershedsegment(thresh,smooth_distance = True,kernel = 3):
         distance = distances
     
     
-    maxima = feature.peak_local_max(distance, indices=False, exclude_border=False) #min_distance=10,
+    maxima = feature.peak_local_max(distance, indices=False, exclude_border=False, min_distance=min_dist)
     surface = distance.max() - distance
     spots, t = mh.label(maxima) 
     areas, lines = mh.cwatershed(surface, spots, return_lines=True)
@@ -131,7 +134,54 @@ def watershedsegment(thresh,smooth_distance = True,kernel = 3):
             labeled_nucl[labeled_nucl == intensity] = index   
     return labeled_nucl
 
-
+def enhance_blur(img, enhance = True, blur = True, kernel = 61):
+    
+    """Uses the watershed segmentation  algorithm to sperate cells or nuclei in K intensities
+        ----------
+        img: (N, M) ndarray
+             RGB image
+        
+        enhance: bool
+            If the image will be enhanced using the CLAHE (Contrast Limited Adaptive Histogram Equalization) from OpenCV
+        
+        blur: bool 
+            If the image will be blurred using the gaussian blur
+        
+        kernel: int 
+           Kernel size of the gaussian blur
+           
+        n_intensities: int
+            Number of intensities you want to segment. If you want to segment into two imatensities Otsu is used
+            If the intensities are greater than 2, then kmeans_img function is used to segement
+        
+        Returns
+        -------
+        cl1: (N, M) ndarray
+            enhanced image
+        
+        gaussian_blur_cl1:  (N, M) ndarray
+            blurred image
+        
+        segmented: (N, M) ndarray
+            segmented images
+            
+        centers: int or list of int
+            Thresholds or centers for the kmeans  
+     """
+    
+    if enhance:
+        clahe = cv2.createCLAHE() # tileGridSize=(8,8)
+        cl1 = clahe.apply(img)
+    else:
+        cl1 = img.copy()
+    
+    if blur:
+        gaussian_blur_cl1 = cv2.GaussianBlur(cl1,(kernel,kernel),0, 0)        
+    else:
+        gaussian_blur_cl1 = cl1.copy()
+        
+    return gaussian_blur_cl1
+    
 def enhance_blur_segment(img,enhance = True, blur = True, kernel = 61, n_intensities = 2):
     
     """Uses the watershed segmentation  algorithm to sperate cells or nuclei in K intensities
@@ -179,7 +229,11 @@ def enhance_blur_segment(img,enhance = True, blur = True, kernel = 61, n_intensi
         gaussian_blur_cl1 = cl1.copy()
     
     if n_intensities  == 2:
-        centers, segmented = cv2.threshold(gaussian_blur_cl1,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+        if(gaussian_blur_cl1.dtype == 'uint8'):
+            centers, segmented = cv2.threshold(gaussian_blur_cl1,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+        else:
+            centers = filters.threshold_otsu(gaussian_blur_cl1)
+            segmented = gaussian_blur_cl1 > centers
     elif n_intensities > 2:
         segmented, centers =  kmeans_img(gaussian_blur_cl1, n_intensities)
     else:
@@ -344,6 +398,7 @@ def draw_contours(labeled,color_image,with_labels= False, color = (255,0,0),widt
     if with_labels:
         for region in regionprops(labeled):
             (min_row, min_col, max_row, max_col) = region.bbox
+            label = int(region.label)-1
             cv2.putText(color_image,str(region.label),(int(min_col),int(min_row)),font,1,255,width,cv2.LINE_AA)
 
     return color_image
@@ -415,7 +470,6 @@ def video_to_tif(path,index):
     
     tif_image = np.zeros((frames,rows, columns), dtype = np.uint8)
     
-    #%%
     i = 0
     while(cap.isOpened()):
         ret, frame = cap.read()
@@ -427,6 +481,83 @@ def video_to_tif(path,index):
     
     cap.release()
     return tif_image
+    
+def find_track_window_object(bool_image, window_mask, orig_image, window_area, prev_object_area, ws_smooth, ws_kernal, ws_dist):
+    #segment and watershed to get objects in thresholded image
+    #identify object that overlaps largest area of the tracking window
+    #calculate mean intensity of object *limited to tracking window*
+    #returns mean intensity, bbox of object
+    
+    #fill holes
+    bool_image = ndimage.morphology.binary_fill_holes(bool_image)
+    
+    #label objects
+    labeled, number = mh.label(bool_image,np.ones((3,3), bool))
+            
+    ### for debugging ###
+    l1 = color.label2rgb(labeled,bg_label=0)
+    l1_=img_as_ubyte(l1)
+    
+    #select region that covers the most % of tracking window
+    regions =  regionprops(labeled,orig_image)
+    max_perc = 0
+    for i, region in enumerate(regions):
+        count = 0
+        for (row,col) in region.coords:
+            if(window_mask[row][col]):
+                count+= 1
+        if(max_perc < count/float(window_area)):
+            max_perc = count/float(window_area)
+            mean_intensity = region.mean_intensity
+            bbox = region.bbox
+            region_label = region.label
+            region_area = region.area
+            
+    #check regions is not too big
+    if((prev_object_area == 0 and region_area > window_area) or #first case is the initial frame
+       (prev_object_area > 0 and region_area > prev_object_area*1.5)):
+        #print "*Watershed*"
+        #might have 2 cells touching as the region, try watershed
+        labeled_2 = watershedsegment(bool_image, ws_smooth, ws_kernal, ws_dist)
+      
+        ### for debugging ###
+        l2 = color.label2rgb(labeled_2,bg_label=0)
+        l2_=img_as_ubyte(l2)
+        
+        #combine segmentations
+        labeled = segmentation.join_segmentations(labeled, labeled_2)
+        
+        ### for debugging ###
+        l3 = color.label2rgb(labeled,bg_label=0)
+        l3_=img_as_ubyte(l3)
+     
+        #select region that covers the most % of tracking window
+        regions =  regionprops(labeled,orig_image)
+        max_perc = 0
+        for i, region in enumerate(regions):
+            count = 0
+            for (row,col) in region.coords:
+                if(window_mask[row][col]):
+                    count+= 1
+            if(max_perc < count/float(window_area)):
+                max_perc = count/float(window_area)
+                mean_intensity = region.mean_intensity
+                bbox = region.bbox
+                region_label = region.label
+                region_area = region.area    
+        
+                
+    elif(prev_object_area > 0 and region_area*1.5 < prev_object_area):
+    #check region is not too small
+    #might have a low intensity object and need to try kmeans instead of otsu thresh
+        pass
+
+                   
+    #create mask with only the identified object
+    obj_mask = np.zeros_like(orig_image)
+    obj_mask[labeled == region_label] = np.iinfo(orig_image.dtype).max
+    
+    return (obj_mask, mean_intensity, bbox)
 
 class cell_tracking:
      #initiate
@@ -452,6 +583,7 @@ class cell_tracking:
         self._n_intensities = None
         self._smooth_distance = None
         self._distance_kernel = None
+        self._min_distance = None
         
         #Parameters
         self._max_sigma = None
@@ -491,7 +623,7 @@ class cell_tracking:
          self._n_intensities = n_intensities
          self.segment_param = True
 
-     def set_watershed_param(self,smooth_distance = True, kernel = 3):
+     def set_watershed_param(self,smooth_distance = True, kernel = 3, min_distance=10):
          """Watershed segmentation parameters. Add them before usiong the function stack_watershedsegment 
          
          smooth_distance: bool
@@ -504,6 +636,7 @@ class cell_tracking:
          
          self._smooth_distance = smooth_distance
          self._distance_kernel = kernel
+         self._min_distance = min_distance
          self.watershed_param = True
          
      def set_blob_param(self,max_sigma,min_sigma,num_sigma, threshold, overlap):
@@ -844,9 +977,199 @@ class cell_tracking:
          
         self.zstack_color = self.zstack_color_orig.copy()
         
+     def track_window_object(self, z, track_window, enhance_bool = True, blur_bool = True, kernel_size = 11):
+        """ 
+        Function to track an object centered in the given track_window
+        Uses thresholding over the track_window pixels to identify the object
+        (The object that overlaps the largest % of pixels in the track_window will be identified)
+        The bbox of the identified object will be used in the next iteration of tracking
+        Mean intensity and position is saved for each frame
+        In addition, object contours and tracking window are marked on each frame
+        (in order to re-create a video of the tracking)
+        CamShift/MeanShift are not used, works with 16-bit images
+        """
+        positions = []
+        
+        x0 = track_window[0]
+        y0 = track_window[1]
+        w = track_window[2]
+        h = track_window[3]
+        x1 = x0+w
+        y1 = y0+h
+        x_col = x0+(w/2)
+        y_row = y0+(h/2)
+        
+        zstack_color = self.zstack_color_orig.copy()
+        zstack = self.zstack_to_segment.copy()
+        zstack_intens = self.zstack.copy()
+
+        first_frame = zstack[z].copy()
+        first_frame_color = zstack_color[z]
+        first_frame_intens = zstack_intens[z]
+        
+        max_of_dtype = np.iinfo(first_frame.dtype).max #to work with 8 or 16 bit
+        
+        tw_mask = np.zeros_like(first_frame)
+        tw_mask[y0:y0+h,x0:x0+w] = max_of_dtype 
+        
+        #frame_img_adjusted = exposure.adjust_gamma(first_frame, gamma=0.5)
+        #frame_img_adjusted = filters.gaussian(frame_img_adjusted,sigma=0.8)
+        frame_img_adjusted = enhance_blur(first_frame, enhance=enhance_bool, blur=blur_bool, kernel=kernel_size)
+
+        
+        #find th over tracking window only
+        if len(np.unique(frame_img_adjusted[tw_mask > 0]))> 2:
+            th = threshold_otsu(frame_img_adjusted[tw_mask > 0])
+        else: 
+            th = 0
+            
+        #apply th to entire image
+        thresh_img = frame_img_adjusted > th
+        
+        #segment and watershed to get objects in thresholded image
+        #identify object that overlaps largest area of the tracking window
+        #calculate mean intensity of object *limited to tracking window*
+        object_image,mean_intensity,bbox = find_track_window_object(thresh_img, tw_mask, first_frame_intens, w*h, 0,
+                                                       self._smooth_distance, self._distance_kernel, self._min_distance) #watersh params
+        
+        #add to positions list for output
+        position =[]
+        position.append(z)
+        position.append(x_col)
+        position.append(y_row)
+        position.append(track_window)
+        position.append(mean_intensity)
+        positions.append(position) 
+        
+        #draw current tracking window on image frame
+        cv2.rectangle(first_frame_color, (x0,y0), (x0+w,y0+h), (max_of_dtype,max_of_dtype,0),2)
+        
+        #draw contours around region used for intensity measurement 
+        object_image = img_as_ubyte(object_image)  
+        im2, contours, hierarchy = cv2.findContours(object_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
+        cv2.drawContours(first_frame_color, contours, -1, (max_of_dtype,0,max_of_dtype), 1)
+        
+        #track for rest of frames
+        num_failed_qc = 0
+        for frame_n in range(z+1,zstack_color.shape[0]):
+            #print 'frame='+str(frame_n)
+            #if(frame_n == 37):
+            #    print frame_n
+#            if(frame_n == 68):
+#                print frame_n
+            
+            #get current frame
+            frame_img = zstack[frame_n]
+            frame_img_color = zstack_color[frame_n]
+            frame_img_intens = zstack_intens[frame_n]
+            
+            tw_mask = np.zeros_like(frame_img)
+            tw_mask[y0:y0+h,x0:x0+w] = max_of_dtype 
+        
+            #frame_img_adjusted = exposure.adjust_gamma(frame_img, gamma=0.5)
+            #frame_img_adjusted = filters.gaussian(frame_img_adjusted,sigma=0.8)
+            frame_img_adjusted = enhance_blur(frame_img, enhance=enhance_bool, blur=blur_bool, kernel=kernel_size)
+
+            
+            #find th over tracking window only
+            if len(np.unique(frame_img_adjusted[tw_mask > 0]))> 2:
+                th = threshold_otsu(frame_img_adjusted[tw_mask > 0])
+            else: 
+                th = 0
+            
+            #apply th to entire image
+            thresh_img = frame_img_adjusted > th
+            
+            #segment and watershed to get objects in thresholded image
+            #identify object that overlaps largest area of the tracking window
+            #calculate mean intensity of object *limited to tracking window*
+            failed_qc = False
+            
+            prev_object_image = object_image.copy()
+            object_image[object_image>0] = 1
+            prev_object_area = object_image.flatten().sum()  
+            
+            object_image,mean_intensity,bbox = find_track_window_object(thresh_img, tw_mask, frame_img_intens, w*h, prev_object_area,
+                                                           self._smooth_distance, self._distance_kernel, self._min_distance) #watersh params
+            
+            y0_, x0_, y1_, x1_ = bbox
+            x_col_ = x0_+((x1_-x0_)/2.)
+            y_row_ = y0_+((y1_-y0_)/2.)
+            
+            #draw current tracking window on image frame
+            cv2.rectangle(frame_img_color, (x0,y0), (x0+w,y0+h), (max_of_dtype,max_of_dtype,0),2)
+            
+            #quality check: if NEW tw is out of range of OLD tw, keep using OLD tw
+            #checks of size out of range or distance from prev tw out of range
+            if((x1_-x0_) < 1.25*w and (y1_-y0_) < 1.25*h and (x1_-x0_) > .75*w and (y1_-y0_) > .75*h
+               and (distance.euclidean((x_col_,y_row_),(x_col,y_row)) < (0.5)*max(x1-x0,y1-y0)) ):
+               #passed quality check
+                
+                #set up NEW track window based on found object (movement of nuclei)
+                y0, x0, y1, x1 = bbox
+                track_window = (x0, y0, x1-x0, y1-y0) 
+            
+                #set up vars for new track window
+                w = track_window[2]
+                h = track_window[3]
+                x_col = x0+(w/2)
+                y_row = y0+(h/2)
+            else: 
+                failed_qc = True
+                #print '*failed QC*'
+                #sio.imsave("/Users/sarahkeegan/fenyolab/data_and_results/pagano/rona/temp/"+str(frame_n)+"_th2.tiff",
+                #           thresh_img.astype('uint8')*255)
+                
+                #do not update to new tw
+                #do not update object
+                #obtain mean intensity over old object mask in the new frame
+                labeled, number = mh.label(prev_object_image>0,np.ones((3,3), bool))
+                regions = regionprops(labeled,frame_img_intens)
+                mean_intensity = regions[0].mean_intensity
+                
+                #draw contours and rect around region that did not pass QC (for debugging only)
+                cv2.rectangle(frame_img_color, (x0_,y0_), (x0_+(x1_-x0_),y0_+(y1_-y0_)), (0,0,max_of_dtype),1)
+                object_image = img_as_ubyte(object_image) 
+                im2, contours, hierarchy = cv2.findContours(object_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
+                cv2.drawContours(frame_img_color, contours, -1, (0,0,max_of_dtype), 1)
+            
+                object_image = prev_object_image
+    
+            #draw tracking window on image frame
+            cv2.rectangle(frame_img_color, (x0,y0), (x0+w,y0+h), (max_of_dtype,max_of_dtype,0),1)
+            
+            #draw contours around region used for intensity measurement 
+            object_image = img_as_ubyte(object_image) 
+            im2, contours, hierarchy = cv2.findContours(object_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
+            cv2.drawContours(frame_img_color, contours, -1, (max_of_dtype,0,max_of_dtype), 1)
+            
+            #record data about this frame
+            position = []
+            position.append(frame_n)
+            position.append(x_col)
+            position.append(y_row)
+            position.append(track_window)
+            position.append(mean_intensity)
+            positions.append(position)
+            
+            if(failed_qc):
+                num_failed_qc = num_failed_qc + 1
+            else: 
+                num_failed_qc = 0
+                
+            if(num_failed_qc >= 10):
+                positions = positions[:-10]
+                print "Failed QC 10 times, stopping at frame " + str(frame_n) + " and removing final 10 track windows."
+                break
+            #if(frame_n >= 100): break
+        
+        positions_table  = DataFrame(positions, columns = ['z','x_col','y_row','track_window','mean_intensity'])    
+        return zstack_color, positions_table
+        
      def track_window(self, z, track_window,enhance_bool = False ,blur_bool = True, kernel_size = 61):
          
-        """Function to track one cell. You will give the tracking window and zlevel and it will return a marked zstack and a dictionary of the mean intensity measurments""" 
+        """Function to track one cell. You will give the tracking window and zlevel and it will return a marked 
+        zstack and a dictionary of the mean intensity measurments""" 
         
         positions = []
         # add kernel and enhance option
@@ -993,7 +1316,7 @@ class cell_tracking:
             combined_thresh = remove_regions(labeled, new_area, size='smaller')        
             labeled,number = mh.label(combined_thresh>0,np.ones((3,3), bool))
             regions =  regionprops(labeled,frame_img)
-            print(len(regions))
+            #print(len(regions))
             index =0            
             mean_intensity = regions[index].mean_intensity        
             
@@ -1018,7 +1341,7 @@ class cell_tracking:
         positions_table  = DataFrame(positions, columns = ['z','x_col','y_row','track_window','mean_intensity'])    
         return zstack_color , positions_table                 
                         
-     def track_window_graph(self,label,z,track_window,enhance_bool = False, blur_bool = True, kernel_size = 61, size = 2.5):
+     def track_window_graph(self,label,z,track_window, use_camshift=True, enhance_bool = False, blur_bool = True, kernel_size = 61, size = 2.5):
         plt.ioff()
 
         """Function to track one cell. You will give the tracking window and zlevel and it will return a marked zstack with a and table with intensity measurments""" 
@@ -1027,21 +1350,31 @@ class cell_tracking:
         mpl.rcParams['font.sans-serif'] = 'Arial'
         mpl.rcParams['font.size'] = 10
         
-        pixels= size *100 + 25
+        pixels= int(size *100 + 25)
 
-        tracked_label, measurements = self.track_window(z,track_window,enhance_bool ,blur_bool, kernel_size)
+        #print "Begin tracking for label = " + str(label)
+        if(use_camshift):
+            tracked_label, measurements = self.track_window(z,track_window,enhance_bool,blur_bool, kernel_size)
+        else:
+            tracked_label,measurements = self.track_window_object(z,track_window,enhance_bool,blur_bool, kernel_size)
+        print 
         
-        
-        stack_graph = np.zeros((tracked_label.shape[0],tracked_label.shape[1]+pixels,tracked_label.shape[2]+pixels,tracked_label.shape[3]), dtype = np.uint8)
+        stack_graph = np.zeros((tracked_label.shape[0],
+                                tracked_label.shape[1]+pixels,
+                                tracked_label.shape[2]+pixels,
+                                tracked_label.shape[3]), dtype = 'uint8')
         
         #Change this
         measurementsSeries = Series(measurements.mean_intensity.values, index = measurements.z.values)
+        last_zindex_measurements = measurements.iloc[len(measurements)-1].z 
+        first_zindex_measurements = measurements.iloc[0].z
+        max_measurements = max(measurements.mean_intensity.values)
         
         for z_index in range(0,tracked_label.shape[0]):
             zslice= tracked_label[z_index].copy() 
-            slice_graph = np.zeros((zslice.shape[0]+pixels,zslice.shape[1]+pixels,3), dtype = np.uint8)
+            slice_graph = np.zeros((zslice.shape[0]+pixels,zslice.shape[1]+pixels,3), dtype = 'uint8')
         
-            if z_index < z:
+            if z_index < z or z_index > last_zindex_measurements:
                 slice_graph[0:zslice.shape[0],pixels-1:pixels-1+zslice.shape[1]] = zslice
             else:
         
@@ -1050,24 +1383,29 @@ class cell_tracking:
                 _ax1.set_ylabel('Mean Intensity')
                 _ax1.plot(measurementsSeries,color ='w')
                 _ax1.set_title('Mean Intensity Cell '+ str(label))
-                _ax1.set_xlim([0,tracked_label.shape[0]])
-                _ax1.set_ylim([0,150])
+                _ax1.set_xlim([0,len(measurements)]) #tracked_label.shape[0]])
+                _ax1.set_ylim([0,max_measurements+.05*max_measurements])
                 zslice= tracked_label[z_index].copy() 
                 
                 slice_graph[0:zslice.shape[0],pixels-1:pixels-1+zslice.shape[1]] = zslice
                 
-                _ax1.plot(measurementsSeries[0:z_index+1],color ='b')
+                series_index = z_index-first_zindex_measurements
+                
+                #_ax1.plot(measurementsSeries[0:series_index+1],color ='b')
+                _ax1.plot(measurements.loc[0:series_index+1,'z'],measurements.loc[0:series_index+1,'mean_intensity'],color='b')
                 _fig.tight_layout()
                 _fig.canvas.draw()
                 
-                data = np.fromstring(_fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+                data = np.fromstring(_fig.canvas.tostring_rgb(), dtype='uint8', sep='')
                 data = data.reshape(_fig.canvas.get_width_height()[::-1] + (3,))
-                slice_graph[10:(size*100+10),10:(size*100+10)] = data.copy()
-
+                slice_graph[10:int(size*100+10),10:int(size*100+10)] = data.copy()
+                
+                plt.clf()
+                plt.close()
                 
             stack_graph[z_index] = slice_graph.copy()
         plt.ion()
-        return stack_graph
+        return (stack_graph,measurements)
     
      def track_blob_labeled(self,label,levels_after =4,size = 2.5):
         
