@@ -4,6 +4,8 @@ https://www.dropbox.com/s/o2thd7u8gbx123c/images_demo.zip?dl=0
 
 If interested in measuring and segmenting foci in microscopy images go to
 ```foci_class.py``` and ```foci_project_publish.py```
+
+
 ![Image of Cell](https://github.com/FenyoLab/cell-segmentation-analysis/blob/master/images_read_me/Tracked_window_720.gif)
 
 
