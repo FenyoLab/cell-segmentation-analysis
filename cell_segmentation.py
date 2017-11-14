@@ -273,15 +273,17 @@ def draw_blob_log(intensity_image,color_image,with_labels = False, max_sigma=8, 
       
     """
     blobs = blob_log(intensity_image, max_sigma,  min_sigma,num_sigma,threshold,overlap)
-    blobs[:, 2] = blobs[:, 2] * sqrt(2)
-    n_label = 0
-    for blob in blobs:
-        y, x, r = blob
-        cv2.circle(color_image, (int(x),int(y)), int(r),color_blobs , width)
-        if with_labels:
-            cv2.putText(color_image,str(n_label),(int(x),int(y)),font,1,color_blobs,width,cv2.LINE_AA)
-        n_label += 1
-        
+    try:
+        blobs[:, 2] = blobs[:, 2] * sqrt(2)
+        n_label = 0
+        for blob in blobs:
+            y, x, r = blob
+            cv2.circle(color_image, (int(x),int(y)), int(r),color_blobs , width)
+            if with_labels:
+                cv2.putText(color_image,str(n_label),(int(x),int(y)),font,1,color_blobs,width,cv2.LINE_AA)
+            n_label += 1
+    except:
+        print(len(blobs))
     return color_image
 
 def blob_log_measure(track_image,intensity_image, max_sigma=8,  min_sigma=4,num_sigma=30,threshold=.02,overlap=0.7):
@@ -308,33 +310,36 @@ def blob_log_measure(track_image,intensity_image, max_sigma=8,  min_sigma=4,num_
     """
     positions = []
     blobs = blob_log(track_image, max_sigma,  min_sigma,num_sigma,threshold,overlap)
-    blobs[:, 2] = blobs[:, 2] * sqrt(2)
-    for blob in blobs:
-        y_row, x_col, r = blob
-        position = []
-        position.append(x_col)
-        position.append(y_row)
-        position.append(r)
-        x0 = x_col - r
-        y0 = y_row - r
-        if x0 < 0:
-            x0 = 0
-        if y0 < 0:
-            y0 = 0
-
-        track_window = (int(x0), int(y0), int(r*2), int(r*2))
-        position.append(track_window)
-        mask = np.zeros_like(intensity_image)
-                  
-        cv2.circle(mask, (int(x_col),int(y_row)), int(r),255 , -1)
-        mean_intensity = intensity_image[mask > 0].mean()
-        position.append(mean_intensity)
-        positions.append(position)
-       
-    positions  = DataFrame(positions, columns = ['x_col','y_row','r','track_window','mean_intensity'])
-        
+    if len(blobs) > 0 :
+        blobs[:, 2] = blobs[:, 2] * sqrt(2)
+        for blob in blobs:
+            y_row, x_col, r = blob
+            position = []
+            position.append(x_col)
+            position.append(y_row)
+            position.append(r)
+            x0 = x_col - r
+            y0 = y_row - r
+            if x0 < 0:
+                x0 = 0
+            if y0 < 0:
+                y0 = 0
     
-    return positions
+            track_window = (int(x0), int(y0), int(r*2), int(r*2))
+            position.append(track_window)
+            mask = np.zeros_like(intensity_image)
+                      
+            cv2.circle(mask, (int(x_col),int(y_row)), int(r),255 , -1)
+            mean_intensity = intensity_image[mask > 0].mean()
+            position.append(mean_intensity)
+            positions.append(position)
+           
+        positions  = DataFrame(positions, columns = ['x_col','y_row','r','track_window','mean_intensity'])
+            
+        
+        return positions
+    else:
+        return []
 
 def draw_blob_dog(intensity_image,color_image,with_labels = False, max_sigma=8,  min_sigma=4,num_sigma=30,threshold=.02,overlap=0.7,color_blobs = (0,0,255),width =1 ):
     """ Identifies blobs in intensity image using the scikit image blob_dog function, and then draws blobs in color image
@@ -1125,6 +1130,7 @@ class cell_tracking:
                 #obtain mean intensity over old object mask in the new frame
                 labeled, number = mh.label(prev_object_image>0,np.ones((3,3), bool))
                 regions = regionprops(labeled,frame_img_intens)
+                
                 mean_intensity = regions[0].mean_intensity
                 
                 #draw contours and rect around region that did not pass QC (for debugging only)
@@ -1169,7 +1175,7 @@ class cell_tracking:
      def track_window(self, z, track_window,enhance_bool = False ,blur_bool = True, kernel_size = 61):
          
         """Function to track one cell. You will give the tracking window and zlevel and it will return a marked 
-        zstack and a dictionary of the mean intensity measurments""" 
+        zstack and table of intensity measurements""" 
         
         positions = []
         x0 = track_window[0]
@@ -1229,8 +1235,8 @@ class cell_tracking:
                 new_area = area
         # combined_thresh will have the small regions removed
         combined_thresh = remove_regions(combined_thresh, new_area, size='smaller')        
-        roi_hist = cv2.calcHist([self.zstack[z]],[0],combined_thresh,[256],[0,256]) # create histogram of roi
-
+        roi_hist = cv2.calcHist([gaussian_blur_cl1],[0],combined_thresh,[256],[0,256]) # create histogram of roi gaussian_blur_cl1
+        intensities = self.zstack[z][combined_thresh > 0].ravel()
         # getting the mean intensity
         labeled,number = mh.label(combined_thresh>0,np.ones((3,3), bool))#np.ones((3,3), bool)
         regions =  regionprops(labeled,self.zstack[z])
@@ -1248,6 +1254,7 @@ class cell_tracking:
         position.append(y_row)
         position.append(track_window)
         position.append(mean_intensity)
+        position.append(list(intensities))
 		       
         #Start loop
         
@@ -1356,6 +1363,7 @@ class cell_tracking:
                 
                 # get new histogram
                 roi_hist = cv2.calcHist([gaussian_blur_cl1],[0],combined_thresh,[256],[0,256])
+                intensities = self.zstack[z][combined_thresh > 0].ravel()
                 
                 x_col = center[0]
                 y_row = center[1]
@@ -1365,9 +1373,11 @@ class cell_tracking:
                 position.append(y_row)
                 position.append(track_window)
                 position.append(mean_intensity)
+                position.append(list(intensities))
+
                 positions.append(position)
-        
-        positions_table  = DataFrame(positions, columns = ['z','x_col','y_row','track_window','mean_intensity'])    
+                
+        positions_table  = DataFrame(positions, columns = ['z','x_col','y_row','track_window','mean_intensity','intensities'])    
         return zstack_color , positions_table                 
                         
      def track_window_graph(self,label,z,track_window, use_camshift=True, enhance_bool = False, blur_bool = True, kernel_size = 61, size = 2.5,vline_x =None ):
@@ -1386,7 +1396,6 @@ class cell_tracking:
             tracked_label, measurements = self.track_window(z,track_window,enhance_bool,blur_bool, kernel_size)
         else:
             tracked_label,measurements = self.track_window_object(z,track_window,enhance_bool,blur_bool, kernel_size)
-        print 
         
         stack_graph = np.zeros((tracked_label.shape[0],
                                 tracked_label.shape[1]+pixels,
