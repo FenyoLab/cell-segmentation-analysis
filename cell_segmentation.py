@@ -106,7 +106,7 @@ def watershedsegment(thresh,smooth_distance = True,kernel = 3,min_dist=10):
             If distances will be smoothed
         
         kernel: int 
-            Kernel size form smoothing the distances map
+            Kernel size for smoothing the distances map
         
         Returns
         -------
@@ -151,8 +151,8 @@ def enhance_blur(img, enhance = True, blur = True, kernel = 61):
            Kernel size of the gaussian blur
            
         n_intensities: int
-            Number of intensities you want to segment. If you want to segment into two imatensities Otsu is used
-            If the intensities are greater than 2, then kmeans_img function is used to segement
+            Number of intensities you want to segment. If you want to segment into two intensities Otsu is used
+            If the intensities are greater than 2, then kmeans_img function is used to segment
         
         Returns
         -------
@@ -184,7 +184,7 @@ def enhance_blur(img, enhance = True, blur = True, kernel = 61):
     
 def enhance_blur_segment(img,enhance = True, blur = True, kernel = 61, n_intensities = 2):
     
-    """Uses the watershed segmentation  algorithm to sperate cells or nuclei in K intensities
+    """Uses the watershed segmentation algorithm to sperate cells or nuclei in K intensities
         ----------
         img: (N, M) ndarray
              RGB image
@@ -273,15 +273,17 @@ def draw_blob_log(intensity_image,color_image,with_labels = False, max_sigma=8, 
       
     """
     blobs = blob_log(intensity_image, max_sigma,  min_sigma,num_sigma,threshold,overlap)
-    blobs[:, 2] = blobs[:, 2] * sqrt(2)
-    n_label = 0
-    for blob in blobs:
-        y, x, r = blob
-        cv2.circle(color_image, (int(x),int(y)), int(r),color_blobs , width)
-        if with_labels:
-            cv2.putText(color_image,str(n_label),(int(x),int(y)),font,1,color_blobs,width,cv2.LINE_AA)
-        n_label += 1
-        
+    try:
+        blobs[:, 2] = blobs[:, 2] * sqrt(2)
+        n_label = 0
+        for blob in blobs:
+            y, x, r = blob
+            cv2.circle(color_image, (int(x),int(y)), int(r),color_blobs , width)
+            if with_labels:
+                cv2.putText(color_image,str(n_label),(int(x),int(y)),font,1,color_blobs,width,cv2.LINE_AA)
+            n_label += 1
+    except:
+        print(len(blobs))
     return color_image
 
 def blob_log_measure(track_image,intensity_image, max_sigma=8,  min_sigma=4,num_sigma=30,threshold=.02,overlap=0.7):
@@ -308,33 +310,36 @@ def blob_log_measure(track_image,intensity_image, max_sigma=8,  min_sigma=4,num_
     """
     positions = []
     blobs = blob_log(track_image, max_sigma,  min_sigma,num_sigma,threshold,overlap)
-    blobs[:, 2] = blobs[:, 2] * sqrt(2)
-    for blob in blobs:
-        y_row, x_col, r = blob
-        position = []
-        position.append(x_col)
-        position.append(y_row)
-        position.append(r)
-        x0 = x_col - r
-        y0 = y_row - r
-        if x0 < 0:
-            x0 = 0
-        if y0 < 0:
-            y0 = 0
-
-        track_window = (int(x0), int(y0), int(r*2), int(r*2))
-        position.append(track_window)
-        mask = np.zeros_like(intensity_image)
-                  
-        cv2.circle(mask, (int(x_col),int(y_row)), int(r),255 , -1)
-        mean_intensity = intensity_image[mask > 0].mean()
-        position.append(mean_intensity)
-        positions.append(position)
-       
-    positions  = DataFrame(positions, columns = ['x_col','y_row','r','track_window','mean_intensity'])
-        
+    if len(blobs) > 0 :
+        blobs[:, 2] = blobs[:, 2] * sqrt(2)
+        for blob in blobs:
+            y_row, x_col, r = blob
+            position = []
+            position.append(x_col)
+            position.append(y_row)
+            position.append(r)
+            x0 = x_col - r
+            y0 = y_row - r
+            if x0 < 0:
+                x0 = 0
+            if y0 < 0:
+                y0 = 0
     
-    return positions
+            track_window = (int(x0), int(y0), int(r*2), int(r*2))
+            position.append(track_window)
+            mask = np.zeros_like(intensity_image)
+                      
+            cv2.circle(mask, (int(x_col),int(y_row)), int(r),255 , -1)
+            mean_intensity = intensity_image[mask > 0].mean()
+            position.append(mean_intensity)
+            positions.append(position)
+           
+        positions  = DataFrame(positions, columns = ['x_col','y_row','r','track_window','mean_intensity'])
+            
+        
+        return positions
+    else:
+        return []
 
 def draw_blob_dog(intensity_image,color_image,with_labels = False, max_sigma=8,  min_sigma=4,num_sigma=30,threshold=.02,overlap=0.7,color_blobs = (0,0,255),width =1 ):
     """ Identifies blobs in intensity image using the scikit image blob_dog function, and then draws blobs in color image
@@ -561,7 +566,7 @@ def find_track_window_object(bool_image, window_mask, orig_image, window_area, p
 
 class cell_tracking:
      #initiate
-     """Class fro cell tracking """
+     """Class for cell tracking """
      def __init__(self,zstack, zstack_to_segment, zstack_color):
         """ 
         zstack: (Z, N, M) ndarray 
@@ -624,13 +629,13 @@ class cell_tracking:
          self.segment_param = True
 
      def set_watershed_param(self,smooth_distance = True, kernel = 3, min_distance=10):
-         """Watershed segmentation parameters. Add them before usiong the function stack_watershedsegment 
+         """Watershed segmentation parameters. Add them before using the function stack_watershedsegment 
          
          smooth_distance: bool
             If distances will be smoothed
         
          kernel: int 
-            Kernel size form smoothing the distances map
+            Kernel size for smoothing the distances map
          
          """
          
@@ -1047,7 +1052,7 @@ class cell_tracking:
         #draw contours around region used for intensity measurement 
         object_image = img_as_ubyte(object_image)  
         im2, contours, hierarchy = cv2.findContours(object_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
-        cv2.drawContours(first_frame_color, contours, -1, (max_of_dtype,0,max_of_dtype), 1)
+        cv2.drawContours(first_frame_color, contours, -1, (max_of_dtype,0,max_of_dtype), 2)
         
         #track for rest of frames
         num_failed_qc = 0
@@ -1097,7 +1102,7 @@ class cell_tracking:
             y_row_ = y0_+((y1_-y0_)/2.)
             
             #draw current tracking window on image frame
-            cv2.rectangle(frame_img_color, (x0,y0), (x0+w,y0+h), (max_of_dtype,max_of_dtype,0),2)
+            #cv2.rectangle(frame_img_color, (x0,y0), (x0+w,y0+h), (max_of_dtype,max_of_dtype,0),2)
             
             #quality check: if NEW tw is out of range of OLD tw, keep using OLD tw
             #checks of size out of range or distance from prev tw out of range
@@ -1125,23 +1130,24 @@ class cell_tracking:
                 #obtain mean intensity over old object mask in the new frame
                 labeled, number = mh.label(prev_object_image>0,np.ones((3,3), bool))
                 regions = regionprops(labeled,frame_img_intens)
+                
                 mean_intensity = regions[0].mean_intensity
                 
                 #draw contours and rect around region that did not pass QC (for debugging only)
-                cv2.rectangle(frame_img_color, (x0_,y0_), (x0_+(x1_-x0_),y0_+(y1_-y0_)), (0,0,max_of_dtype),1)
+                #cv2.rectangle(frame_img_color, (x0_,y0_), (x0_+(x1_-x0_),y0_+(y1_-y0_)), (0,0,max_of_dtype),1)
                 object_image = img_as_ubyte(object_image) 
-                im2, contours, hierarchy = cv2.findContours(object_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
-                cv2.drawContours(frame_img_color, contours, -1, (0,0,max_of_dtype), 1)
-            
+#                im2, contours, hierarchy = cv2.findContours(object_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
+#                cv2.drawContours(frame_img_color, contours, -1, (0,0,max_of_dtype), 1)
+#            
                 object_image = prev_object_image
     
             #draw tracking window on image frame
-            cv2.rectangle(frame_img_color, (x0,y0), (x0+w,y0+h), (max_of_dtype,max_of_dtype,0),1)
+            cv2.rectangle(frame_img_color, (x0,y0), (x0+w,y0+h), (max_of_dtype,max_of_dtype,0),2)
             
             #draw contours around region used for intensity measurement 
             object_image = img_as_ubyte(object_image) 
             im2, contours, hierarchy = cv2.findContours(object_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
-            cv2.drawContours(frame_img_color, contours, -1, (max_of_dtype,0,max_of_dtype), 1)
+            cv2.drawContours(frame_img_color, contours, -1, (max_of_dtype,0,max_of_dtype), 2)
             
             #record data about this frame
             position = []
@@ -1169,10 +1175,9 @@ class cell_tracking:
      def track_window(self, z, track_window,enhance_bool = False ,blur_bool = True, kernel_size = 61):
          
         """Function to track one cell. You will give the tracking window and zlevel and it will return a marked 
-        zstack and a dictionary of the mean intensity measurments""" 
+        zstack and table of intensity measurements""" 
         
         positions = []
-        # add kernel and enhance option
         x0 = track_window[0]
         y0 = track_window[1]
         w = track_window[2]
@@ -1180,94 +1185,107 @@ class cell_tracking:
         center = np.array([x0+(w/2),y0+(h/2)])
         x_col = center[0]
         y_row = center[1]
-        
-        
+              
         zstack_color = self.zstack_color_orig.copy()
-        zstack = self.zstack.copy()
-
+        zstack = self.zstack_to_segment.copy()
+        
+        
         first_frame = zstack[z].copy()
         first_frame_color = zstack_color[z]
-        
+                
+        # thresh is a mask with a square or tracking window
         thresh = np.zeros_like(first_frame)
         thresh[y0:y0+h,x0:x0+w] = 255
         
         cl1, gaussian_blur_cl1, segmented_zlevel, centers = enhance_blur_segment(first_frame,enhance = enhance_bool, blur = blur_bool, kernel = kernel_size, n_intensities = 2)
         
+        # getting the threshold inside the tracking window or square
         if len(np.unique(gaussian_blur_cl1[thresh > 0]))> 2:
             th = threshold_otsu(gaussian_blur_cl1[thresh > 0])
         else:
             th = 0
-        
+        # getting and roi mask where you  threshold the whole image
         mask_new_roi =gaussian_blur_cl1 > th
         
+        # make a mask of the intersection between the mask with the tracking window and the one wiht the region
         combined_thresh =np.logical_and(mask_new_roi, thresh > 0)
         combined_thresh =combined_thresh.astype(np.uint8)
         combined_thresh[combined_thresh==1]= 255
         
+        # calculate the histogram of the region
         roi_hist = cv2.calcHist([gaussian_blur_cl1],[0],combined_thresh,[256],[0,256]) # create histogram of roi
         
         term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1) #10, 1 
+
         
-        # Draw in first frame
-        
+        # draw rectangle in the first color frame
         cv2.rectangle(first_frame_color, (x0,y0), (x0+w,y0+h), (255,0,0),2)
        
-        #getting measurements
+        # getting measurements
         
+        # make labeled image
         labeled,number = mh.label(combined_thresh>0,np.ones((3,3), bool))#np.ones((3,3), bool)
         regions =  regionprops(labeled,first_frame)
     
+        # remove small regions
         new_area = 0
-        for i, region in enumerate(regions):
+        for region in regions:
             area = region.area
             if area > new_area:
                 new_area = area
-                index = i
+        # combined_thresh will have the small regions removed
         combined_thresh = remove_regions(combined_thresh, new_area, size='smaller')        
-        
+        roi_hist = cv2.calcHist([gaussian_blur_cl1],[0],combined_thresh,[256],[0,256]) # create histogram of roi gaussian_blur_cl1
+        intensities = self.zstack[z][combined_thresh > 0].ravel()
+        # getting the mean intensity
         labeled,number = mh.label(combined_thresh>0,np.ones((3,3), bool))#np.ones((3,3), bool)
-        regions =  regionprops(labeled,first_frame)
+        regions =  regionprops(labeled,self.zstack[z])
         index = 0
         mean_intensity = regions[index].mean_intensity        
        
-        
+        # drawing the contours
         im2, contours, hierarchy = cv2.findContours(combined_thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
         cv2.drawContours(first_frame_color, contours, -1, (0,0,255), 2)
-        
-        
-        #Add all measurements
+               
+        # adding all measurements
         position =[]
         position.append(z)
         position.append(x_col)
         position.append(y_row)
         position.append(track_window)
         position.append(mean_intensity)
-		
-        
+        position.append(list(intensities))
+		       
         #Start loop
         
         for frame_n in range(z+1,zstack_color.shape[0]):
             
             frame_img = zstack[frame_n]
             frame_img_color = zstack_color[frame_n]
+            # create enhanced, blur segmentes and centers
             cl1, gaussian_blur_cl1, segmented_zlevel, centers = enhance_blur_segment(frame_img,enhance = enhance_bool, blur = blur_bool, kernel = kernel_size, n_intensities = 2)
         
-            dst = cv2.calcBackProject([gaussian_blur_cl1],[0],roi_hist,[0,256],1) # create map of probabilities
+            # create map of probabilities
+            dst = cv2.calcBackProject([gaussian_blur_cl1],[0],roi_hist,[0,256],1)
             
+            # get new tracking window and center
             retcam, track_window = cv2.CamShift(dst, track_window, term_crit)
             new_center = np.array(retcam[0])
+            # calc distance of the new center and old center
             distance_val = distance.euclidean(center,new_center)
             
+            # if the distance is greater than the width of the box or greater than the height, then break
             if (distance_val > w) or (distance_val > h):
                 print('Center Far away'+str(frame_n)+' Possible_Division')
                 break
                 
             else:
                 center = new_center# create histogram of roi
-            
+            # get the new width and the new height
             new_w = track_window[2]
             new_h = track_window[3]
             
+            # if the height or width is less than 1/4 then break
             if (new_w < w/4) or (new_h < h/4):
                 print('W or H small'+str(frame_n))
                 break
@@ -1275,73 +1293,94 @@ class cell_tracking:
             else:
                 w = new_w
                 h = new_h
+            
+            # draw the tracking window
             pts = cv2.boxPoints(retcam)
             pts = np.int0(pts)
             cv2.polylines(frame_img_color,[pts],True, (255,0,0), 2)
         
-           
+            # create a mask with the tracking window
+            
             thresh = np.zeros_like(first_frame)
             cv2.fillPoly(thresh,[pts], (255,0,0))
-            #cl1, gaussian_blur_cl1, dst_thresh, centers = enhance_blur_segment(dst,enhance = enhance_bool, blur = blur_bool, kernel = kernel_size, n_intensities = 2)
             
+            # get a threshold of inside the window
             if len(np.unique(gaussian_blur_cl1[thresh > 0]))> 2:
                 th = threshold_otsu(gaussian_blur_cl1[thresh >0])
             else:
                 th = 0
-            
+            # apply the threshold to the blurred image
             dst_thresh = gaussian_blur_cl1 > th
             dst_thresh = ndimage.morphology.binary_fill_holes(dst_thresh)
             dst_thresh = dst_thresh.astype(np.uint8)
             dst_thresh[dst_thresh==1]= 255
-
-#
+            
+            # get labeled image
             labeled,number = mh.label(dst_thresh>0,np.ones((3,3), bool))
             
+            # get a new labeled image with the segmented image obtained in 1260
             labeled_2 = watershedsegment(segmented_zlevel,self._smooth_distance,self._distance_kernel)
             
+            # if the labeled image has more than one labeled object then join semgentetion
             if len(np.unique(labeled_2[thresh > 0])) > 2:
                 labeled = segmentation.join_segmentations(labeled, labeled_2)
             
+            # make everything outside the square as zero
             labeled[thresh != 255] =0
         
+            # get the regions
             regions =  regionprops(labeled,frame_img)
-         
+            
+            # eliminate small regions
             new_area = 0
-            for i, region in enumerate(regions):
+            for region in regions:
                 area = region.area
                 if area > new_area:
                     new_area = area
-                    index = i
-            
+                                
             combined_thresh = remove_regions(labeled, new_area, size='smaller')        
             labeled,number = mh.label(combined_thresh>0,np.ones((3,3), bool))
-            regions =  regionprops(labeled,frame_img)
-            #print(len(regions))
-            index =0            
-            mean_intensity = regions[index].mean_intensity        
+           
+            # get the mean intensity
             
-            y0, x0, y1, x1 = regions[index].bbox #(min_row, min_col, max_row, max_col)
-            track_window = (x0, y0, x1-x0, y1-y0)
-            combined_thresh[combined_thresh > 0] = 255
-            combined_thresh = combined_thresh.astype(np.uint8)
+            regions =  regionprops(labeled,self.zstack[frame_n])
+            print(len(regions))
+            if len(regions) != 0:
             
-            im2, contours, hierarchy = cv2.findContours(combined_thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
-            cv2.drawContours(frame_img_color, contours, -1, (0,0,255), 2)
-            roi_hist = cv2.calcHist([gaussian_blur_cl1],[0],combined_thresh,[256],[0,256])
-            
-            x_col = center[0]
-            y_row = center[1]
-            position =[]
-            position.append(frame_n)
-            position.append(x_col)
-            position.append(y_row)
-            position.append(track_window)
-            position.append(mean_intensity)
-            positions.append(position)
-        positions_table  = DataFrame(positions, columns = ['z','x_col','y_row','track_window','mean_intensity'])    
+                index =0            
+                mean_intensity = regions[index].mean_intensity        
+                
+                # get the tracking window
+                y0, x0, y1, x1 = regions[index].bbox #(min_row, min_col, max_row, max_col)
+                track_window = (x0, y0, x1-x0, y1-y0)
+                
+                combined_thresh[combined_thresh > 0] = 255
+                combined_thresh = combined_thresh.astype(np.uint8)
+                
+                # get and draw contours
+                im2, contours, hierarchy = cv2.findContours(combined_thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
+                cv2.drawContours(frame_img_color, contours, -1, (0,0,255), 2)
+                
+                # get new histogram
+                roi_hist = cv2.calcHist([gaussian_blur_cl1],[0],combined_thresh,[256],[0,256])
+                intensities = self.zstack[z][combined_thresh > 0].ravel()
+                
+                x_col = center[0]
+                y_row = center[1]
+                position =[]
+                position.append(frame_n)
+                position.append(x_col)
+                position.append(y_row)
+                position.append(track_window)
+                position.append(mean_intensity)
+                position.append(list(intensities))
+
+                positions.append(position)
+                
+        positions_table  = DataFrame(positions, columns = ['z','x_col','y_row','track_window','mean_intensity','intensities'])    
         return zstack_color , positions_table                 
                         
-     def track_window_graph(self,label,z,track_window, use_camshift=True, enhance_bool = False, blur_bool = True, kernel_size = 61, size = 2.5):
+     def track_window_graph(self,label,z,track_window, use_camshift=True, enhance_bool = False, blur_bool = True, kernel_size = 61, size = 2.5,vline_x =None ):
         plt.ioff()
 
         """Function to track one cell. You will give the tracking window and zlevel and it will return a marked zstack with a and table with intensity measurments""" 
@@ -1357,7 +1396,6 @@ class cell_tracking:
             tracked_label, measurements = self.track_window(z,track_window,enhance_bool,blur_bool, kernel_size)
         else:
             tracked_label,measurements = self.track_window_object(z,track_window,enhance_bool,blur_bool, kernel_size)
-        print 
         
         stack_graph = np.zeros((tracked_label.shape[0],
                                 tracked_label.shape[1]+pixels,
@@ -1382,17 +1420,19 @@ class cell_tracking:
                 _ax1.set_xlabel('Time')
                 _ax1.set_ylabel('Mean Intensity')
                 _ax1.plot(measurementsSeries,color ='w')
+                if vline_x != None:
+                     _ax1.axvline(x=vline_x, color='k',ls ='--')
                 _ax1.set_title('Mean Intensity Cell '+ str(label))
-                _ax1.set_xlim([0,len(measurements)]) #tracked_label.shape[0]])
+                _ax1.set_xlim([0,tracked_label.shape[0]]) #len(measurements)]) 
                 _ax1.set_ylim([0,max_measurements+.05*max_measurements])
                 zslice= tracked_label[z_index].copy() 
                 
                 slice_graph[0:zslice.shape[0],pixels-1:pixels-1+zslice.shape[1]] = zslice
                 
                 series_index = z_index-first_zindex_measurements
-                
                 #_ax1.plot(measurementsSeries[0:series_index+1],color ='b')
-                _ax1.plot(measurements.loc[0:series_index+1,'z'],measurements.loc[0:series_index+1,'mean_intensity'],color='b')
+                _ax1.plot(measurements.loc[0:series_index,'z'].values,measurements.loc[0:series_index,'mean_intensity'].values,color='b')
+                
                 _fig.tight_layout()
                 _fig.canvas.draw()
                 
