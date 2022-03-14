@@ -27,6 +27,8 @@ import base64
 from IPython.display import HTML
 from skimage import img_as_ubyte,color,exposure
 from skimage import io as sio
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 
 """Series of functions to segment cells or nuclei"""
 
@@ -237,7 +239,7 @@ def enhance_blur_segment(img,enhance = True, blur = True, kernel = 61, n_intensi
     elif n_intensities > 2:
         segmented, centers =  kmeans_img(gaussian_blur_cl1, n_intensities)
     else:
-        print 'intensity colors neeed to be 2 or greater'
+        print ('intensity colors neeed to be 2 or greater')
         
     return (cl1, gaussian_blur_cl1, segmented, centers)
 
@@ -397,7 +399,7 @@ def draw_contours(labeled,color_image,with_labels= False, color = (255,0,0),widt
            RGB image with blobs drawn
     """
     
-    im2, contours, hierarchy = cv2.findContours(np.int32(labeled),cv2.RETR_FLOODFILL,cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2.findContours(np.int32(labeled),cv2.RETR_FLOODFILL,cv2.CHAIN_APPROX_SIMPLE)
     cv2.drawContours(color_image, contours, -1, color, width)
     
     if with_labels:
@@ -881,7 +883,7 @@ class cell_tracking:
                  self.create_table_blobs()
                  self.add_labels_table()
              else:
-                 print "Set blob and segmentation parameters"
+                 print ("Set blob and segmentation parameters")
          self.filter_table(min_slices)
          if reset_drawing:
               self.reset_drawing()
@@ -905,7 +907,7 @@ class cell_tracking:
              self.draw_labels(color=color_labels, with_blobs= False)
              self.draw_contours(color_contours=color_contours)
          else:
-             print "Set segmentation parameters"
+             print ("Set segmentation parameters")
              
      def find_trajectories(self):
         """
@@ -1051,7 +1053,7 @@ class cell_tracking:
         
         #draw contours around region used for intensity measurement 
         object_image = img_as_ubyte(object_image)  
-        im2, contours, hierarchy = cv2.findContours(object_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
+        contours, hierarchy = cv2.findContours(object_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
         cv2.drawContours(first_frame_color, contours, -1, (max_of_dtype,0,max_of_dtype), 2)
         
         #track for rest of frames
@@ -1136,7 +1138,7 @@ class cell_tracking:
                 #draw contours and rect around region that did not pass QC (for debugging only)
                 #cv2.rectangle(frame_img_color, (x0_,y0_), (x0_+(x1_-x0_),y0_+(y1_-y0_)), (0,0,max_of_dtype),1)
                 object_image = img_as_ubyte(object_image) 
-#                im2, contours, hierarchy = cv2.findContours(object_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
+#                contours, hierarchy = cv2.findContours(object_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
 #                cv2.drawContours(frame_img_color, contours, -1, (0,0,max_of_dtype), 1)
 #            
                 object_image = prev_object_image
@@ -1146,7 +1148,7 @@ class cell_tracking:
             
             #draw contours around region used for intensity measurement 
             object_image = img_as_ubyte(object_image) 
-            im2, contours, hierarchy = cv2.findContours(object_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
+            contours, hierarchy = cv2.findContours(object_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
             cv2.drawContours(frame_img_color, contours, -1, (max_of_dtype,0,max_of_dtype), 2)
             
             #record data about this frame
@@ -1165,7 +1167,7 @@ class cell_tracking:
                 
             if(num_failed_qc >= 10):
                 positions = positions[:-10]
-                print "Failed QC 10 times, stopping at frame " + str(frame_n) + " and removing final 10 track windows."
+                print ("Failed QC 10 times, stopping at frame " + str(frame_n) + " and removing final 10 track windows.")
                 break
             #if(frame_n >= 100): break
         
@@ -1244,7 +1246,7 @@ class cell_tracking:
         mean_intensity = regions[index].mean_intensity        
        
         # drawing the contours
-        im2, contours, hierarchy = cv2.findContours(combined_thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
+        contours, hierarchy = cv2.findContours(combined_thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
         cv2.drawContours(first_frame_color, contours, -1, (0,0,255), 2)
                
         # adding all measurements
@@ -1358,7 +1360,7 @@ class cell_tracking:
                 combined_thresh = combined_thresh.astype(np.uint8)
                 
                 # get and draw contours
-                im2, contours, hierarchy = cv2.findContours(combined_thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
+                contours, hierarchy = cv2.findContours(combined_thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
                 cv2.drawContours(frame_img_color, contours, -1, (0,0,255), 2)
                 
                 # get new histogram
@@ -1415,8 +1417,11 @@ class cell_tracking:
             if z_index < z or z_index > last_zindex_measurements:
                 slice_graph[0:zslice.shape[0],pixels-1:pixels-1+zslice.shape[1]] = zslice
             else:
-        
-                _fig, _ax1  = plt.subplots(nrows=1,ncols=1, figsize=(size,size), dpi=100)
+
+                _fig = Figure(figsize=(size, size), dpi=100)
+                canvas = FigureCanvasAgg(_fig)
+                _ax1 = _fig.add_subplot(1, 1, 1)
+
                 _ax1.set_xlabel('Time')
                 _ax1.set_ylabel('Mean Intensity')
                 _ax1.plot(measurementsSeries,color ='w')
@@ -1434,12 +1439,12 @@ class cell_tracking:
                 _ax1.plot(measurements.loc[0:series_index,'z'].values,measurements.loc[0:series_index,'mean_intensity'].values,color='b')
                 
                 _fig.tight_layout()
-                _fig.canvas.draw()
+                canvas.draw()
                 
-                data = np.fromstring(_fig.canvas.tostring_rgb(), dtype='uint8', sep='')
+                data = np.frombuffer(_fig.canvas.tostring_rgb(), dtype='uint8')
                 data = data.reshape(_fig.canvas.get_width_height()[::-1] + (3,))
                 slice_graph[10:int(size*100+10),10:int(size*100+10)] = data.copy()
-                
+
                 plt.clf()
                 plt.close()
                 
